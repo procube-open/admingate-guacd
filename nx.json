@@ -1,0 +1,21 @@
+{
+  "$schema": "./node_modules/nx/schemas/nx-schema.json",
+  "defaultBase": "main",
+  "useDaemonProcess": false,
+  "useInferencePlugins": false,
+  "release": {
+    "projects": ["admingate-guacd"],
+    "projectsRelationship": "independent",
+    "version": {
+      "currentVersionResolver": "disk",
+      "generatorOptions": {
+        "packageRoot": "."
+      },
+      "git": {
+        "commit": false,
+        "tag": false
+      }
+    },
+    "releaseTagPattern": "{projectName}@{version}"
+  }
+}

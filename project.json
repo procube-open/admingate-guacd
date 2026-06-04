@@ -1,0 +1,39 @@
+{
+  "name": "admingate-guacd",
+  "$schema": "./node_modules/nx/schemas/project-schema.json",
+  "projectType": "application",
+  "tags": ["type:app", "runtime:docker"],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "docker build -f Dockerfile --target guacamole-server -t admingate-guacd:build .",
+        "cwd": "."
+      }
+    },
+    "container": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "docker build -f Dockerfile -t admingate-guacd:latest .",
+        "cwd": "."
+      }
+    }
+  },
+  "release": {
+    "version": {
+      "generator": "@nx/js:release-version"
+    },
+    "syncFiles": [
+      {
+        "path": "configure.ac",
+        "match": "AC_INIT\\(\\[guacamole-server\\], \\[[^\\]]+\\]\\)",
+        "replace": "AC_INIT([guacamole-server], [{version}])"
+      },
+      {
+        "path": "bin/guacctl",
+        "match": "guacctl [^,]+, Apache Guacamole terminal session control utility\\.",
+        "replace": "guacctl {version}, Apache Guacamole terminal session control utility."
+      }
+    ]
+  }
+}

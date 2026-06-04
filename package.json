@@ -1,0 +1,14 @@
+{
+  "name": "admingate-guacd",
+  "private": true,
+  "version": "1.6.1-procube.0",
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "nx": "nx",
+    "release:sync-manifests": "node tools/scripts/sync-release-manifests.mjs"
+  },
+  "devDependencies": {
+    "@nx/js": "^20.3.0",
+    "nx": "^20.3.0"
+  }
+}
