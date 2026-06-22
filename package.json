@@ -1,7 +1,7 @@
 {
   "name": "admingate-guacd",
   "private": true,
-  "version": "1.6.1-procube.0",
+  "version": "1.6.0-procube.1",
   "packageManager": "pnpm@10.33.0",
   "scripts": {
     "nx": "nx",
