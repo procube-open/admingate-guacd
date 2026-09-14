@@ -43,6 +43,12 @@
 #define RDP_DEFAULT_PORT 3389
 
 /**
+ * The protocol label included in the process title (the first argument passed
+ * to guac_process_title_set_endpoint()), as seen in `ps`/`top`.
+ */
+#define GUAC_RDP_PROCESS_TITLE_NAME "rdp"
+
+/**
  * The default SFTP connection timeout, in seconds.
  */
 #define RDP_DEFAULT_SFTP_TIMEOUT 10
@@ -588,6 +594,16 @@ typedef struct guac_rdp_settings {
      * sensitive information, such as passwords, credit card numbers, etc.
      */
     int recording_include_keys;
+
+    /**
+     * Whether clipboard data should be included in the session recording.
+     * Clipboard data is NOT included by default within the recording,
+     * as doing so has privacy and security implications. Including clipboard data
+     * may be necessary in certain auditing contexts, but should only be done
+     * with caution. Clipboard data can easily contain sensitive information, such
+     * as passwords, credit card numbers, etc.
+     */
+    bool recording_include_clipboard;
 
     /**
      * Non-zero if existing files should be appended to when creating a new 

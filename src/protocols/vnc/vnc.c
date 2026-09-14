@@ -17,14 +17,13 @@
  * under the License.
  */
 
-#include "config.h"
-
 #include "auth.h"
 #include "client.h"
 #include "clipboard.h"
 #include "common/clipboard.h"
 #include "cursor.h"
 #include "display.h"
+#include "input.h"
 #include "log.h"
 #include "settings.h"
 #include "vnc.h"
@@ -42,6 +41,7 @@
 #include <guacamole/client.h>
 #include <guacamole/display.h>
 #include <guacamole/mem.h>
+#include <guacamole/proctitle.h>
 #include <guacamole/protocol.h>
 #include <guacamole/recording.h>
 #include <guacamole/socket.h>
@@ -67,6 +67,105 @@ GCRY_THREAD_OPTION_PTHREAD_IMPL;
 #endif
 
 char* GUAC_VNC_CLIENT_KEY = "GUAC_VNC";
+
+/**
+ * Returns a human-readable name for the given negotiated VNC security type.
+ *
+ * Security scheme values come from libvncclient/libvncserver:
+ *   - rfbproto.h
+ *   - rfbclient.h
+ *
+ * @param auth_scheme
+ *     The negotiated security type.
+ *
+ * @return
+ *     The human-readable name of the given security type, or "UNKNOWN" if no
+ *     known name exists.
+ */
+static const char* guac_vnc_auth_scheme_name(uint32_t auth_scheme) {
+
+    switch (auth_scheme) {
+        case rfbNoAuth:
+            return "None";
+
+        case rfbVncAuth:
+            return "VNC";
+
+        case rfbTLS:
+            return "TLS";
+
+        case rfbVeNCrypt:
+            return "VeNCrypt";
+
+        case rfbVeNCryptPlain:
+            return "VeNCrypt/Plain";
+
+        case rfbVeNCryptTLSNone:
+            return "VeNCrypt/TLSNone";
+
+        case rfbVeNCryptTLSVNC:
+            return "VeNCrypt/TLSVNC";
+
+        case rfbVeNCryptTLSPlain:
+            return "VeNCrypt/TLSPlain";
+
+        case rfbVeNCryptX509None:
+            return "VeNCrypt/X509None";
+
+        case rfbVeNCryptX509VNC:
+            return "VeNCrypt/X509VNC";
+
+        case rfbVeNCryptX509Plain:
+            return "VeNCrypt/X509Plain";
+
+        case rfbVeNCryptX509SASL:
+            return "VeNCrypt/X509SASL";
+
+        case rfbVeNCryptTLSSASL:
+            return "VeNCrypt/TLSSASL";
+    }
+
+    return "UNKNOWN";
+
+}
+
+/**
+ * Logs the negotiated VNC protocol version and security scheme selected for
+ * the given connection.
+ *
+ * @param client
+ *     The Guacamole client associated with the connection.
+ *
+ * @param rfb_client
+ *     The libvncclient connection state containing the negotiated protocol
+ *     and security information.
+ */
+static void guac_vnc_log_connection_security(guac_client* client,
+        rfbClient* rfb_client) {
+
+    const char* auth_name =
+        guac_vnc_auth_scheme_name(rfb_client->authScheme);
+
+    /* Some security protocols store the selected sub-authentication scheme
+     * separately. */
+    if (rfb_client->subAuthScheme != 0) {
+        const char* subauth_name =
+            guac_vnc_auth_scheme_name(rfb_client->subAuthScheme);
+
+        guac_client_log(client, GUAC_LOG_INFO,
+                "Connected using RFB %d.%d, security: %s (%u), sub-security: %s (%u).",
+                rfb_client->major, rfb_client->minor,
+                auth_name, rfb_client->authScheme,
+                subauth_name, rfb_client->subAuthScheme);
+    }
+    else {
+        guac_client_log(client, GUAC_LOG_INFO,
+                "Connected using RFB %d.%d, security: %s (%u).",
+                rfb_client->major, rfb_client->minor,
+                auth_name, rfb_client->authScheme);
+    }
+
+}
 
 #ifdef ENABLE_VNC_TLS_LOCKING
 /**
@@ -139,8 +238,13 @@ rfbClient* guac_vnc_get_client(guac_client* client) {
 
     /* Framebuffer update handler */
     rfb_client->GotFrameBufferUpdate = guac_vnc_update;
+    /* Framebuffer finished frame handler */
+    rfb_client->FinishedFrameBufferUpdate = guac_vnc_finished_frame;
     vnc_client->rfb_GotCopyRect = rfb_client->GotCopyRect;
     rfb_client->GotCopyRect = guac_vnc_copyrect;
+
+    /* Lock key state (KeyboardLedState) update handler */
+    rfb_client->HandleKeyboardLedState = guac_vnc_keyboard_led_state;
 
 #ifdef ENABLE_VNC_TLS_LOCKING
     /* TLS Locking and Unlocking */
@@ -174,6 +278,9 @@ rfbClient* guac_vnc_get_client(guac_client* client) {
 
         /* Clipboard */
         rfb_client->GotXCutText = guac_vnc_cut_text;
+#ifdef LIBVNC_CLIENT_HAS_EXTENDED_CLIPBOARD
+        rfb_client->GotXCutTextUTF8 = guac_vnc_cut_text_utf8;
+#endif
 
         /* Set remote cursor */
         if (vnc_settings->remote_cursor) {
@@ -348,9 +455,23 @@ static rfbBool guac_vnc_handle_messages(guac_client* client) {
 
 void* guac_vnc_client_thread(void* data) {
 
+    /* Thread name vnc-worker: main VNC client thread; runs the libvncclient
+     * connection and message loop. */
+    guac_thread_name_set("vnc-worker");
+
     guac_client* client = (guac_client*) data;
     guac_vnc_client* vnc_client = (guac_vnc_client*) client->data;
     guac_vnc_settings* settings = vnc_client->settings;
+
+    /* VNC has no default port (0 == unspecified), so suppress a misleading
+     * ":0" in the title. */
+    char vnc_port[GUAC_USHORT_STRING_BUFSIZE];
+    if (settings->port == 0
+            || guac_itoa_safe(vnc_port, sizeof(vnc_port),
+                    settings->port) < 1)
+        vnc_port[0] = '\0';
+    guac_process_title_set_endpoint(GUAC_VNC_PROCESS_TITLE_NAME,
+            settings->username, settings->hostname, vnc_port);
 
     /* If Wake-on-LAN is enabled, attempt to wake. */
     if (settings->wol_send_packet) {
@@ -432,6 +553,9 @@ void* guac_vnc_client_thread(void* data) {
                 "Unable to connect to VNC server.");
         return NULL;
     }
+
+    /* Log negotiated protocol version and security scheme to aid debugging */
+    guac_vnc_log_connection_security(client, rfb_client);
 
 #ifdef ENABLE_PULSE
     /* If audio is enabled, start streaming via PulseAudio */
@@ -587,7 +711,8 @@ void* guac_vnc_client_thread(void* data) {
                 !settings->recording_exclude_mouse,
                 0, /* Touch events not supported */
                 settings->recording_include_keys,
-                settings->recording_write_existing);
+                settings->recording_write_existing,
+                settings->recording_include_clipboard);
     }
 
     /* Create display */

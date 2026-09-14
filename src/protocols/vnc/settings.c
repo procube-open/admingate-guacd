@@ -17,8 +17,6 @@
  * under the License.
  */
 
-#include "config.h"
-
 #include "argv.h"
 #include "client.h"
 #include "common/defaults.h"
@@ -89,6 +87,7 @@ const char* GUAC_VNC_CLIENT_ARGS[] = {
     "recording-exclude-output",
     "recording-exclude-mouse",
     "recording-include-keys",
+    "recording-include-clipboard",
     "create-recording-path",
     "recording-write-existing",
     "clipboard-buffer-size",
@@ -177,9 +176,9 @@ enum VNC_ARGS_IDX {
 
     /**
      * The encoding to use for clipboard data sent to the VNC server if we are
-     * going to be deviating from the standard (which mandates ISO 8829-1).
-     * Valid values are "ISO8829-1" (the only legal value with respect to the
-     * VNC standard), "UTF-8", "UTF-16", and "CP2252".
+     * going to be deviating from the standard (which mandates ISO 8859-1).
+     * Valid values are "ISO8859-1" (the only legal value with respect to the
+     * VNC standard), "UTF-8", "UTF-16", "CP1252", and "MacRoman".
      */
     IDX_CLIPBOARD_ENCODING,
 
@@ -278,8 +277,8 @@ enum VNC_ARGS_IDX {
     IDX_SFTP_PASSPHRASE,
 
     /**
-     * The base64-encode public key to use when authentication with the SSH
-     * server for SFTP using key-based authentication.
+     * The base64-encoded public key to use when authentication with
+     * the SSH server for SFTP using key-based authentication.
      */
     IDX_SFTP_PUBLIC_KEY,
 
@@ -354,6 +353,16 @@ enum VNC_ARGS_IDX {
      * as passwords, credit card numbers, etc.
      */
     IDX_RECORDING_INCLUDE_KEYS,
+
+    /**
+     * Whether clipboard data should be included in the session recording.
+     * Clipboard data is NOT included by default within the recording,
+     * as doing so has privacy and security implications. Including clipboard data
+     * may be necessary in certain auditing contexts, but should only be done
+     * with caution. Clipboard data can easily contain sensitive information, such
+     * as passwords, credit card numbers, etc.
+     */
+    IDX_RECORDING_INCLUDE_CLIPBOARD,
 
     /**
      * Whether the specified screen recording path should automatically be
@@ -677,6 +686,11 @@ guac_vnc_settings* guac_vnc_parse_args(guac_user* user,
     settings->recording_include_keys =
         guac_user_parse_args_boolean(user, GUAC_VNC_CLIENT_ARGS, argv,
                 IDX_RECORDING_INCLUDE_KEYS, false);
+
+    /* Parse clipboard inclusion flag */
+    settings->recording_include_clipboard =
+        guac_user_parse_args_boolean(user, GUAC_VNC_CLIENT_ARGS, argv,
+                IDX_RECORDING_INCLUDE_CLIPBOARD, false);
 
     /* Parse path creation flag */
     settings->create_recording_path =

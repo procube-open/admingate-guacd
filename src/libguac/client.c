@@ -17,8 +17,6 @@
  * under the License.
  */
 
-#include "config.h"
-
 #include "encode-jpeg.h"
 #include "encode-png.h"
 #include "encode-webp.h"
@@ -28,6 +26,7 @@
 #include "guacamole/layer.h"
 #include "guacamole/plugin.h"
 #include "guacamole/pool.h"
+#include "guacamole/proctitle.h"
 #include "guacamole/protocol.h"
 #include "guacamole/rwlock.h"
 #include "guacamole/socket.h"
@@ -239,6 +238,10 @@ promotion_complete:
  *     Always NULL.
  */
 static void* guac_client_pending_users_thread(void* data) {
+
+    /* Thread name user-pending: periodically promotes pending users into
+     * the active connection. */
+    guac_thread_name_set("user-pending");
 
     guac_client* client = (guac_client*) data;
 

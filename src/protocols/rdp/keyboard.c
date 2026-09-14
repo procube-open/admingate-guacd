@@ -17,8 +17,6 @@
  * under the License.
  */
 
-#include "config.h"
-
 #include "decompose.h"
 #include "keyboard.h"
 #include "keymap.h"
@@ -31,16 +29,6 @@
 #include <guacamole/rwlock.h>
 
 #include <stdlib.h>
-
-/**
- * X11 keysym for line feed.
- */
-#define GUAC_RDP_KEYSYM_LINE_FEED 0xFF0A
-
-/**
- * X11 keysym for carriage return.
- */
-#define GUAC_RDP_KEYSYM_CARRIAGE_RETURN 0xFF0D
 
 /**
  * Translates the given keysym into the corresponding lock flag, as would be
@@ -494,9 +482,11 @@ unsigned int guac_rdp_keyboard_get_modifier_flags(guac_rdp_keyboard* keyboard) {
             || guac_rdp_keyboard_is_pressed(keyboard, GUAC_RDP_KEYSYM_RSHIFT))
         modifier_flags |= GUAC_RDP_KEYMAP_MODIFIER_SHIFT;
 
-    /* Dedicated AltGr key */
+    /* Dedicated AltGr/Option keys */
     if (guac_rdp_keyboard_is_pressed(keyboard, GUAC_RDP_KEYSYM_RALT)
-            || guac_rdp_keyboard_is_pressed(keyboard, GUAC_RDP_KEYSYM_ALTGR))
+            || guac_rdp_keyboard_is_pressed(keyboard, GUAC_RDP_KEYSYM_ALTGR)
+            || guac_rdp_keyboard_is_pressed(keyboard, GUAC_RDP_KEYSYM_LOPTION)
+            || guac_rdp_keyboard_is_pressed(keyboard, GUAC_RDP_KEYSYM_ROPTION))
         modifier_flags |= GUAC_RDP_KEYMAP_MODIFIER_ALTGR;
 
     /* AltGr via Ctrl+Alt */
@@ -646,17 +636,14 @@ void guac_rdp_keyboard_update_modifiers(guac_rdp_keyboard* keyboard,
         guac_rdp_keyboard_update_keysym(keyboard, GUAC_RDP_KEYSYM_RALT, 0, GUAC_RDP_KEY_SOURCE_SYNTHETIC);
         guac_rdp_keyboard_update_keysym(keyboard, GUAC_RDP_KEYSYM_LCTRL, 0, GUAC_RDP_KEY_SOURCE_SYNTHETIC);
         guac_rdp_keyboard_update_keysym(keyboard, GUAC_RDP_KEYSYM_RCTRL, 0, GUAC_RDP_KEY_SOURCE_SYNTHETIC);
+        guac_rdp_keyboard_update_keysym(keyboard, GUAC_RDP_KEYSYM_LOPTION, 0, GUAC_RDP_KEY_SOURCE_SYNTHETIC);
+        guac_rdp_keyboard_update_keysym(keyboard, GUAC_RDP_KEYSYM_ROPTION, 0, GUAC_RDP_KEY_SOURCE_SYNTHETIC);
     }
 
 }
 
 int guac_rdp_keyboard_update_keysym(guac_rdp_keyboard* keyboard,
         int keysym, int pressed, guac_rdp_key_source source) {
-
-    /* Map LF to CR: LF has no RDP equivalent so it would fall through to
-     * UnicodeKeyboardEvent() which maps LF to 'J'. */
-    if (keysym == GUAC_RDP_KEYSYM_LINE_FEED)
-        keysym = GUAC_RDP_KEYSYM_CARRIAGE_RETURN;
 
     /* Synchronize lock keys states, if this has not yet been done */
     if (!keyboard->synchronized) {

@@ -32,6 +32,12 @@
 #define GUAC_TELNET_DEFAULT_PORT "23"
 
 /**
+ * The protocol label included in the process title (the first argument passed
+ * to guac_process_title_set_endpoint()), as seen in `ps`/`top`.
+ */
+#define GUAC_TELNET_PROCESS_TITLE_NAME "telnet"
+
+/**
  * The default number of seconds to wait for a successful connection before
  * timing out.
  */
@@ -247,6 +253,16 @@ typedef struct guac_telnet_settings {
      * as passwords, credit card numbers, etc.
      */
     bool recording_include_keys;
+
+    /**
+     * Whether clipboard data should be included in the session recording.
+     * Clipboard data is NOT included by default within the recording,
+     * as doing so has privacy and security implications. Including clipboard data
+     * may be necessary in certain auditing contexts, but should only be done
+     * with caution. Clipboard data can easily contain sensitive information, such
+     * as passwords, credit card numbers, etc.
+     */
+    bool recording_include_clipboard;
 
     /**
      * Whether existing files should be appended to when creating a new recording.

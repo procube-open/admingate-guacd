@@ -65,6 +65,7 @@ ARG WITH_LIBWEBSOCKETS='v\d+(\.\d+)+'
 ARG FREERDP_ARM_OPTS=""
 
 ARG FREERDP_OPTS="\
+    -DCMAKE_BUILD_TYPE=Release \
     -DBUILTIN_CHANNELS=OFF \
     -DCHANNEL_URBDRC=OFF \
     -DWITH_ALSA=OFF \
@@ -148,6 +149,7 @@ ARG LIBWEBSOCKETS_OPTS="\
     -DLWS_WITHOUT_TEST_PING=ON \
     -DLWS_WITHOUT_TEST_SERVER=ON \
     -DLWS_WITHOUT_TEST_SERVER_EXTPOLL=ON \
+    -DLWS_WITH_HTTP3=OFF \
     -DLWS_WITH_STATIC=OFF"
 
 ARG LIBWEBSOCKETS_X86_OPTS=""
@@ -326,8 +328,8 @@ RUN apk add --no-cache                \
 ENV LC_ALL=C.UTF-8
 ENV LD_LIBRARY_PATH=${PREFIX_DIR}/lib
 
-# Checks the operating status every 10 seconds with a timeout of 5 seconds
-HEALTHCHECK --interval=10s --timeout=5s CMD nc -z 127.0.0.1 4822 || exit 1
+# Checks the operating status every 5 minutes with a timeout of 5 seconds
+HEALTHCHECK --interval=5m --timeout=5s --start-period=15s CMD nc -z 127.0.0.1 4822 || exit 1
 
 # Create a new user guacd
 ARG UID=1000

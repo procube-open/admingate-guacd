@@ -17,7 +17,6 @@
  * under the License.
  */
 
-#include "config.h"
 #include "argv.h"
 #include "rdp.h"
 #include "settings.h"
@@ -55,6 +54,24 @@ int guac_rdp_argv_callback(guac_user* user, const char* mimetype,
     else if (strcmp(name, GUAC_RDP_ARGV_DOMAIN) == 0) {
         guac_mem_free(settings->domain);
         settings->domain = guac_strdup(value);
+    }
+
+    /* Update gateway username */
+    else if (strcmp(name, GUAC_RDP_ARGV_GATEWAY_USERNAME) == 0) {
+        guac_mem_free(settings->gateway_username);
+        settings->gateway_username = guac_strdup(value);
+    }
+
+    /* Update gateway password */
+    else if (strcmp(name, GUAC_RDP_ARGV_GATEWAY_PASSWORD) == 0) {
+        guac_mem_free(settings->gateway_password);
+        settings->gateway_password = guac_strdup(value);
+    }
+
+    /* Update gateway domain */
+    else if (strcmp(name, GUAC_RDP_ARGV_GATEWAY_DOMAIN) == 0) {
+        guac_mem_free(settings->gateway_domain);
+        settings->gateway_domain = guac_strdup(value);
     }
 
     return 0;

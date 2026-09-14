@@ -21,7 +21,6 @@
 #include "client.h"
 #include "common/clipboard.h"
 #include "common/iconv.h"
-#include "config.h"
 #include "plugins/channels.h"
 #include "rdp.h"
 
@@ -521,6 +520,13 @@ static UINT guac_rdp_cliprdr_format_data_response(CliprdrClientContext* cliprdr,
         guac_common_clipboard_reset(clipboard->clipboard, "text/plain");
         guac_common_clipboard_append(clipboard->clipboard, received_data, length);
         guac_common_clipboard_send(clipboard->clipboard, client);
+
+        /* Record clipboard if recording is active */
+        if (rdp_client->recording != NULL)
+            guac_recording_report_clipboard(rdp_client->recording,
+                    clipboard->clipboard->mimetype,
+                    clipboard->clipboard->buffer,
+                    clipboard->clipboard->length);
     }
 
     guac_mem_free(received_data);
@@ -695,6 +701,12 @@ int guac_rdp_clipboard_handler(guac_user* user, guac_stream* stream,
     /* Clear any current contents, assigning the mimetype the data which will
      * be received */
     guac_common_clipboard_reset(clipboard->clipboard, mimetype);
+
+    /* Report clipboard within recording */
+    if (rdp_client->recording != NULL)
+        guac_recording_report_clipboard_begin(rdp_client->recording, stream,
+                mimetype);
+
     return 0;
 
 }
@@ -710,6 +722,10 @@ int guac_rdp_clipboard_blob_handler(guac_user* user, guac_stream* stream,
     guac_rdp_clipboard* clipboard = rdp_client->clipboard;
     if (clipboard == NULL)
         return 0;
+
+    /* Report clipboard blob within recording */
+    if (rdp_client->recording != NULL)
+        guac_recording_report_clipboard_blob(rdp_client->recording, stream, data, length);
 
     /* Append received data to current clipboard contents */
     guac_common_clipboard_append(clipboard->clipboard, (char*) data, length);
@@ -727,6 +743,10 @@ int guac_rdp_clipboard_end_handler(guac_user* user, guac_stream* stream) {
     guac_rdp_clipboard* clipboard = rdp_client->clipboard;
     if (clipboard == NULL)
         return 0;
+
+    /* Report clipboard stream end within recording */
+    if (rdp_client->recording != NULL)
+        guac_recording_report_clipboard_end(rdp_client->recording, stream);
 
     /* Terminate clipboard data with NULL */
     guac_common_clipboard_append(clipboard->clipboard, "", 1);

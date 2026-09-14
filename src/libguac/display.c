@@ -17,7 +17,6 @@
  * under the License.
  */
 
-#include "config.h"
 #include "display-plan.h"
 #include "display-priv.h"
 #include "guacamole/client.h"
@@ -123,8 +122,8 @@ guac_display* guac_display_alloc(guac_client* client) {
     display->last_frame.timestamp = display->pending_frame.timestamp = guac_timestamp_current();
 
     /* It's safe to discard const of the default layer here, as
-     * guac_display_free_layer() function is specifically written to consider
-     * the default layer as const */
+     * guac_display_free_removed_layers() is specifically written to consider the
+     * default layer as const */
     display->default_layer = guac_display_add_layer(display, (guac_layer*) GUAC_DEFAULT_LAYER, 1);
     display->cursor_buffer = guac_display_alloc_buffer(display, 0);
 
@@ -219,15 +218,15 @@ void guac_display_free(guac_display* display) {
     guac_flag_destroy(&display->render_state);
     guac_fifo_destroy(&display->ops);
 
-    /* Free all layers within the pending_frame list (NOTE: This will also free
-     * those layers from the last_frame list) */
+    /* Remove any layers remaining in the pending frame (by definition, all other
+     * layers must already have been marked for removal) */
     while (display->pending_frame.layers != NULL)
         guac_display_free_layer(display->pending_frame.layers);
 
-    /* Free any remaining layers that were present only on the last_frame list
-     * and not on the pending_frame list */
-    while (display->last_frame.layers != NULL)
-        guac_display_free_layer(display->last_frame.layers);
+    /* All layers are now part of the pending_frame_removed_layers list and can
+     * be freed */
+    guac_display_free_removed_layers(display, display->pending_frame_removed_layers);
+    display->pending_frame_removed_layers = NULL;
 
     guac_rwlock_destroy(&display->last_frame.lock);
     guac_rwlock_destroy(&display->pending_frame.lock);
@@ -256,8 +255,14 @@ void guac_display_dup(guac_display* display, guac_socket* socket) {
 
         const guac_layer* layer = current->layer;
 
-        guac_rect layer_bounds;
-        guac_display_layer_get_bounds(current, &layer_bounds);
+        /* Determine layer bounds from last frame, NOT pending frame as
+         * provided by guac_display_layer_get_bounds() */
+        guac_rect layer_bounds = {
+            .left   = 0,
+            .top    = 0,
+            .right  = current->last_frame.width,
+            .bottom = current->last_frame.height
+        };
 
         int width = guac_rect_width(&layer_bounds);
         int height = guac_rect_height(&layer_bounds);
@@ -310,14 +315,15 @@ void guac_display_dup(guac_display* display, guac_socket* socket) {
 
     }
 
-    /* Synchronize mouse cursor */
+    /* Avoid sending a zero-size cursor instruction if no cursor has been set */
     guac_display_layer* cursor = display->cursor_buffer;
-    guac_protocol_send_cursor(socket,
-            display->last_frame.cursor_hotspot_x,
-            display->last_frame.cursor_hotspot_y,
-            cursor->layer, 0, 0,
-            cursor->last_frame.width,
-            cursor->last_frame.height);
+    if (cursor->last_frame.width > 0 && cursor->last_frame.height > 0)
+        guac_protocol_send_cursor(socket,
+                display->last_frame.cursor_hotspot_x,
+                display->last_frame.cursor_hotspot_y,
+                cursor->layer, 0, 0,
+                cursor->last_frame.width,
+                cursor->last_frame.height);
 
     /* Synchronize mouse location */
     guac_protocol_send_mouse(socket, display->last_frame.cursor_x, display->last_frame.cursor_y,
@@ -370,25 +376,5 @@ guac_display_layer* guac_display_alloc_buffer(guac_display* display, int opaque)
 }
 
 void guac_display_free_layer(guac_display_layer* display_layer) {
-
-    guac_display* display = display_layer->display;
-    const guac_layer* layer = display_layer->layer;
-
     guac_display_remove_layer(display_layer);
-
-    if (layer->index != 0) {
-
-        guac_client* client = display->client;
-        guac_protocol_send_dispose(client->socket, layer);
-
-        /* As long as this isn't the display layer, it's safe to cast away the
-         * constness and free the underlying layer/buffer. Only the default
-         * layer (layer #0) is truly const. */
-        if (layer->index > 0)
-            guac_client_free_layer(client, (guac_layer*) layer);
-        else
-            guac_client_free_buffer(client, (guac_layer*) layer);
-
-    }
-
 }

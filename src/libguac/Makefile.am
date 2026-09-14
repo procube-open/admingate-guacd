@@ -24,6 +24,8 @@
 #
 
 AUTOMAKE_OPTIONS = foreign 
+
+AM_CPPFLAGS = -include config.h
 ACLOCAL_AMFLAGS = -I m4
 
 lib_LTLIBRARIES = libguac.la
@@ -74,6 +76,7 @@ libguacinc_HEADERS =                  \
     guacamole/plugin.h                \
     guacamole/pool.h                  \
     guacamole/pool-types.h            \
+    guacamole/proctitle.h             \
     guacamole/protocol.h              \
     guacamole/protocol-constants.h    \
     guacamole/protocol-types.h        \
@@ -155,6 +158,7 @@ libguac_la_SOURCES =          \
     palette.c                 \
     parser.c                  \
     pool.c                    \
+    proctitle.c               \
     protocol.c                \
     raw_encoder.c             \
     recording.c               \
@@ -209,4 +213,3 @@ libguac_la_LDFLAGS =     \
     @VORBIS_LIBS@        \
     @WEBP_LIBS@          \
     @WINSOCK_LIBS@
-

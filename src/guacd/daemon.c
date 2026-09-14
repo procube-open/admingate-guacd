@@ -17,8 +17,6 @@
  * under the License.
  */
 
-#include "config.h"
-
 #include "conf.h"
 #include "conf-args.h"
 #include "conf-file.h"
@@ -27,6 +25,7 @@
 #include "proc-map.h"
 
 #include <guacamole/mem.h>
+#include <guacamole/proctitle.h>
 
 #ifdef ENABLE_SSL
 #include <openssl/ssl.h>
@@ -297,6 +296,8 @@ static void stop_process_callback(guacd_proc* proc, void* data) {
 
 int main(int argc, char* argv[]) {
 
+    guac_process_title_init(argc, argv);
+
     /* Server */
     int socket_fd;
     struct addrinfo* addresses;
@@ -562,8 +563,9 @@ int main(int argc, char* argv[]) {
         /* Set TCP_NODELAY to avoid any latency that would otherwise be added by the OS'
          * networking stack and Nagle's algorithm */
         const int SO_TRUE = 1;
-        setsockopt(connected_socket_fd, IPPROTO_TCP, TCP_NODELAY,
-                (const void*) &SO_TRUE, sizeof(SO_TRUE));
+        if (setsockopt(connected_socket_fd, IPPROTO_TCP, TCP_NODELAY,
+                (const void*) &SO_TRUE, sizeof(SO_TRUE)))
+            guacd_log(GUAC_LOG_WARNING, "Unable to set TCP_NODELAY on socket: %s", strerror(errno));
 
         /* Create parameters for connection thread */
         guacd_connection_thread_params* params = guac_mem_alloc(sizeof(guacd_connection_thread_params));
@@ -623,4 +625,3 @@ int main(int argc, char* argv[]) {
     return 0;
 
 }
-

@@ -17,12 +17,12 @@
  * under the License.
  */
 
-#include "config.h"
 #include "display-priv.h"
 #include "guacamole/client.h"
 #include "guacamole/display.h"
 #include "guacamole/flag.h"
 #include "guacamole/mem.h"
+#include "guacamole/proctitle.h"
 #include "guacamole/timestamp.h"
 
 /**
@@ -48,8 +48,10 @@
 /**
  * The start routine for the display render thread, consisting of a single
  * render loop. The render loop will proceed until signalled to stop,
- * determining frame boundaries via a combination of heuristics and explicit
- * marking (if available).
+ * determining frame boundaries via explicit marking when available (e.g. VNC's
+ * FinishedFrameBufferUpdate, RDP's frame markers), falling back to heuristics
+ * based on the timing of display modifications when the protocol handler
+ * provides no explicit frame boundaries.
  *
  * @param data
  *     The guac_display_render_thread structure containing the render thread
@@ -59,6 +61,10 @@
  *     Always NULL.
  */
 static void* guac_display_render_loop(void* data) {
+
+    /* Thread name display-render: drives the display render loop, flushing
+     * completed frames to the client. */
+    guac_thread_name_set("display-render");
 
     guac_display_render_thread* render_thread = (guac_display_render_thread*) data;
     guac_display* display = render_thread->display;
