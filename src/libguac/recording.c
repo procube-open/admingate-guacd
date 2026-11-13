@@ -24,6 +24,7 @@
 #include "guacamole/protocol.h"
 #include "guacamole/recording.h"
 #include "guacamole/socket.h"
+#include "guacamole/socket-filer.h"
 #include "guacamole/timestamp.h"
 
 #ifdef __MINGW32__
@@ -37,7 +38,30 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <unistd.h>
+
+static size_t parse_env_size(const char* env_name) {
+    const char* raw = getenv(env_name);
+    if (raw == NULL || raw[0] == '\0')
+        return 0;
+    char* end = NULL;
+    unsigned long long val = strtoull(raw, &end, 10);
+    if (end == raw || *end != '\0')
+        return 0;
+    return (size_t) val;
+}
+
+static int parse_env_int(const char* env_name) {
+    const char* raw = getenv(env_name);
+    if (raw == NULL || raw[0] == '\0')
+        return 0;
+    char* end = NULL;
+    long val = strtol(raw, &end, 10);
+    if (end == raw || *end != '\0' || val <= 0 || val > 3600000L)
+        return 0;
+    return (int) val;
+}
 
 guac_recording* guac_recording_create(guac_client* client,
         const char* path, const char* name, int create_path,
@@ -45,37 +69,81 @@ guac_recording* guac_recording_create(guac_client* client,
         int include_keys, int allow_write_existing, int include_clipboard) {
 
     char filename[GUAC_COMMON_RECORDING_MAX_NAME_LENGTH];
+    guac_socket* socket = NULL;
+    const char* backend = getenv("GUACD_RECORDING_BACKEND");
+    const char* resolved_filer_prefix = GUAC_SOCKET_FILER_DEFAULT_PATH_PREFIX;
+    int use_seaweedfs = 0;
 
-    guac_open_how how = {
-        .oflags = O_CREAT | O_WRONLY,
-        .mode = S_IRUSR | S_IWUSR | S_IRGRP,
-        .filename = filename,
-        .filename_size = sizeof(filename),
-        .flags = GUAC_O_LOCKED
-    };
+    if (backend == NULL || backend[0] == '\0'
+            || strcasecmp(backend, "filesystem") == 0) {
 
-    if (create_path)
-        how.flags |= GUAC_O_CREATE_PATH;
+        guac_open_how how = {
+            .oflags = O_CREAT | O_WRONLY,
+            .mode = S_IRUSR | S_IWUSR | S_IRGRP,
+            .filename = filename,
+            .filename_size = sizeof(filename),
+            .flags = GUAC_O_LOCKED
+        };
 
-    if (!allow_write_existing)
-        how.flags |= GUAC_O_UNIQUE_SUFFIX;
+        if (create_path)
+            how.flags |= GUAC_O_CREATE_PATH;
 
-    /* Attempt to open recording file */
-    int fd = guac_openat(path, name, &how);
-    if (fd == -1) {
-        guac_client_log(client, GUAC_LOG_ERROR, "Creation of recording "
-                "failed: %s: %s", guac_error_message,
-                guac_status_string(guac_error));
-        return NULL;
+        if (!allow_write_existing)
+            how.flags |= GUAC_O_UNIQUE_SUFFIX;
+
+        /* Attempt to open recording file */
+        int fd = guac_openat(path, name, &how);
+        if (fd == -1) {
+            guac_client_log(client, GUAC_LOG_ERROR, "Creation of recording "
+                    "failed: %s: %s", guac_error_message,
+                    guac_status_string(guac_error));
+            return NULL;
+        }
+
+        /* Wrap recording file in socket */
+        socket = guac_socket_open(fd);
+        if (socket == NULL) {
+            guac_client_log(client, GUAC_LOG_ERROR, "Creation of recording "
+                    "failed: %s: %s", guac_error_message,
+                    guac_status_string(guac_error));
+            close(fd);
+            return NULL;
+        }
+
     }
+    else if (strcasecmp(backend, "seaweedfs") == 0) {
 
-    /* Wrap recording file in socket */
-    guac_socket* socket = guac_socket_open(fd);
-    if (socket == NULL) {
+        use_seaweedfs = 1;
+        const char* filer_url = getenv("GUACD_SEAWEEDFS_FILER_URL");
+        const char* env_prefix = getenv("GUACD_SEAWEEDFS_RECORDING_PREFIX");
+        if (env_prefix != NULL && env_prefix[0] != '\0')
+            resolved_filer_prefix = env_prefix;
+
+        guac_socket_filer_config filer_cfg = {
+            .filer_url = filer_url,
+            .path_prefix = resolved_filer_prefix,
+            .name = name,
+            .max_buffer_bytes = parse_env_size("GUACD_SEAWEEDFS_MAX_BUFFER_BYTES"),
+            .flush_threshold_bytes = parse_env_size("GUACD_SEAWEEDFS_FLUSH_THRESHOLD_BYTES"),
+            .flush_interval_ms = parse_env_int("GUACD_SEAWEEDFS_FLUSH_INTERVAL_MS"),
+            .http_timeout_ms = parse_env_int("GUACD_SEAWEEDFS_HTTP_TIMEOUT_MS"),
+            .close_timeout_ms = parse_env_int("GUACD_SEAWEEDFS_CLOSE_TIMEOUT_MS")
+        };
+
+        socket = guac_socket_open_filer(&filer_cfg);
+        if (socket == NULL) {
+            guac_client_log(client, GUAC_LOG_ERROR, "Creation of SeaweedFS "
+                    "recording failed: %s: %s", guac_error_message,
+                    guac_status_string(guac_error));
+            return NULL;
+        }
+
+        snprintf(filename, sizeof(filename), "%s", name != NULL ? name : "");
+
+    }
+    else {
         guac_client_log(client, GUAC_LOG_ERROR, "Creation of recording "
-                "failed: %s: %s", guac_error_message,
-                guac_status_string(guac_error));
-        close(fd);
+                "failed: unsupported GUACD_RECORDING_BACKEND \"%s\"", backend);
         return NULL;
     }
 
@@ -118,8 +186,15 @@ guac_recording* guac_recording_create(guac_client* client,
     }
 
     /* Recording creation succeeded */
-    guac_client_log(client, GUAC_LOG_INFO, "Recording of session will be "
-            "saved within \"%s\" as \"%s\".", path, filename);
+    if (use_seaweedfs) {
+        guac_client_log(client, GUAC_LOG_INFO, "Recording of session will be "
+                "saved to SeaweedFS Filer prefix \"%s\" as \"%s\".",
+                resolved_filer_prefix, filename);
+    }
+    else {
+        guac_client_log(client, GUAC_LOG_INFO, "Recording of session will be "
+                "saved within \"%s\" as \"%s\".", path, filename);
+    }
 
     return recording;
 

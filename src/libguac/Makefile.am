@@ -85,6 +85,7 @@ libguacinc_HEADERS =                  \
     guacamole/rwlock.h                \
     guacamole/socket.h                \
     guacamole/socket-constants.h      \
+    guacamole/socket-filer.h          \
     guacamole/socket-fntypes.h        \
     guacamole/socket-types.h          \
     guacamole/stream.h                \
@@ -168,6 +169,7 @@ libguac_la_SOURCES =          \
     socket.c                  \
     socket-broadcast.c        \
     socket-fd.c               \
+    socket-filer.c            \
     socket-nest.c             \
     socket-tee.c              \
     string.c                  \
@@ -200,12 +202,14 @@ libguacinc_HEADERS += guacamole/socket-wsa.h
 endif
 
 libguac_la_CFLAGS = \
-    -Werror -Wall -pedantic
+    -Werror -Wall -pedantic \
+    @CURL_CFLAGS@
 
 libguac_la_LDFLAGS =     \
     -version-info 26:0:1 \
     -no-undefined        \
     @CAIRO_LIBS@         \
+    @CURL_LIBS@          \
     @DL_LIBS@            \
     @JPEG_LIBS@          \
     @PNG_LIBS@           \
