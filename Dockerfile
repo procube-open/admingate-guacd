@@ -51,6 +51,7 @@ ARG PREFIX_DIR=/opt/guacamole
 # needed)
 #
 ARG WITH_FREERDP="${FREERDP_VERSION}(\.\d+)+"
+ARG WITH_LIBCURL='curl-8_1[0-7]_\d+'
 ARG WITH_LIBSSH2='libssh2-\d+(\.\d+)+'
 ARG WITH_LIBTELNET='\d+(\.\d+)+'
 ARG WITH_LIBVNCCLIENT='LibVNCServer-\d+(\.\d+)+'
@@ -116,6 +117,27 @@ ARG GUACAMOLE_SERVER_OPTS="\
     CPPFLAGS=-Wno-error=deprecated-declarations"
 
 ARG GUACAMOLE_SERVER_X86_OPTS=""
+
+ARG LIBCURL_ARM_OPTS=""
+
+ARG LIBCURL_OPTS="\
+    -DBUILD_CURL_EXE=OFF \
+    -DBUILD_LIBCURL_DOCS=OFF \
+    -DBUILD_SHARED_LIBS=ON \
+    -DBUILD_STATIC_LIBS=OFF \
+    -DBUILD_TESTING=OFF \
+    -DCURL_BROTLI=OFF \
+    -DCURL_DISABLE_LDAP=ON \
+    -DCURL_ENABLE_SSL=ON \
+    -DCURL_USE_LIBPSL=OFF \
+    -DCURL_USE_LIBSSH2=OFF \
+    -DCURL_ZSTD=OFF \
+    -DENABLE_CURL_MANUAL=OFF \
+    -DHTTP_ONLY=ON \
+    -DUSE_LIBIDN2=OFF \
+    -DUSE_NGHTTP2=OFF"
+
+ARG LIBCURL_X86_OPTS=""
 
 ARG LIBSSH2_ARM_OPTS=""
 
@@ -189,6 +211,21 @@ RUN apk add --no-cache                \
 
 # Copy generic, automatic build script
 COPY ./src/guacd-docker/bin/autobuild.sh ${BUILD_DIR}/src/guacd-docker/bin/
+
+#
+# Build dependency: libcurl (built against openssl1.1-compat to avoid OpenSSL 3 ABI conflict)
+#
+
+FROM builder AS libcurl
+ARG BUILD_DIR
+ARG LIBCURL_ARM_OPTS
+ARG LIBCURL_OPTS
+ARG LIBCURL_X86_OPTS
+ARG PREFIX_DIR
+ARG WITH_LIBCURL
+
+RUN ${BUILD_DIR}/src/guacd-docker/bin/autobuild.sh "LIBCURL" \
+    "https://github.com/curl/curl"
 
 #
 # Build dependency: libssh2
@@ -280,6 +317,7 @@ ARG PREFIX_DIR
 
 # Copy dependencies built in previous stages
 COPY --from=freerdp ${PREFIX_DIR} ${PREFIX_DIR}
+COPY --from=libcurl ${PREFIX_DIR} ${PREFIX_DIR}
 COPY --from=libssh2 ${PREFIX_DIR} ${PREFIX_DIR}
 COPY --from=libtelnet ${PREFIX_DIR} ${PREFIX_DIR}
 COPY --from=libvncclient ${PREFIX_DIR} ${PREFIX_DIR}

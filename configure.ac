@@ -85,6 +85,15 @@ AC_CHECK_LIB([jpeg], [jpeg_start_compress], [JPEG_LIBS=-ljpeg],
 AC_CHECK_LIB([cairo], [cairo_create], [CAIRO_LIBS=-lcairo],
              AC_MSG_ERROR("Cairo is required for drawing instructions"))
 
+# libcurl
+PKG_CHECK_MODULES([CURL], [libcurl],
+                  [AC_DEFINE([HAVE_LIBCURL], [1], [Whether libcurl is available])],
+                  [AC_CHECK_LIB([curl], [curl_easy_init],
+                                [CURL_LIBS=-lcurl
+                                 CURL_CFLAGS=""
+                                 AC_DEFINE([HAVE_LIBCURL], [1], [Whether libcurl is available])],
+                                [AC_MSG_ERROR("libcurl is required for SeaweedFS Filer recording support")])])
+
 # libpthread
 AC_CHECK_LIB([pthread], [pthread_create], [PTHREAD_LIBS=-lpthread
               AC_DEFINE([HAVE_LIBPTHREAD],,
@@ -161,6 +170,8 @@ AC_SUBST(MATH_LIBS)
 AC_SUBST(PNG_LIBS)
 AC_SUBST(JPEG_LIBS)
 AC_SUBST(CAIRO_LIBS)
+AC_SUBST(CURL_CFLAGS)
+AC_SUBST(CURL_LIBS)
 AC_SUBST(RT_LIBS)
 AC_SUBST(PTHREAD_LIBS)
 AC_SUBST(UUID_LIBS)
