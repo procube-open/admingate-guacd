@@ -22,23 +22,118 @@
 
 #include <guacamole/file.h>
 #include <guacamole/mem.h>
+#include <guacamole/error.h>
+#include <guacamole/socket-filer.h>
 #include <guacamole/timestamp.h>
 
 #include <errno.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
+#include <strings.h>
 #include <unistd.h>
 
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 
+static size_t guac_typescript_env_size(const char* name) {
+    const char* raw = getenv(name);
+    if (raw == NULL || *raw == '\0')
+        return 0;
+    char* end;
+    unsigned long long value = strtoull(raw, &end, 10);
+    return end != raw && *end == '\0' ? (size_t) value : 0;
+}
+
+static int guac_typescript_env_int(const char* name, int maximum) {
+    const char* raw = getenv(name);
+    if (raw == NULL || *raw == '\0')
+        return 0;
+    char* end;
+    long value = strtol(raw, &end, 10);
+    if (end == raw || *end != '\0' || value <= 0)
+        return 0;
+    return value > maximum ? maximum : (int) value;
+}
+
+static void guac_typescript_socket_write(guac_socket* socket,
+        const void* data, size_t length) {
+    guac_socket_instruction_begin(socket);
+    guac_socket_write(socket, data, length);
+    guac_socket_instruction_end(socket);
+}
+
+static guac_terminal_typescript* guac_terminal_typescript_alloc_filer(
+        const char* name) {
+    guac_terminal_typescript* typescript = guac_mem_zalloc(sizeof(*typescript));
+    if (typescript == NULL)
+        return NULL;
+
+    if (name == NULL
+            || snprintf(typescript->data_filename, sizeof(typescript->data_filename),
+                "%s", name) >= sizeof(typescript->data_filename)
+            || snprintf(typescript->timing_filename, sizeof(typescript->timing_filename),
+                "%s.%s", name, GUAC_TERMINAL_TYPESCRIPT_TIMING_SUFFIX)
+                >= sizeof(typescript->timing_filename)) {
+        guac_mem_free(typescript);
+        guac_error = GUAC_STATUS_INVALID_ARGUMENT;
+        guac_error_message = "Invalid typescript filename";
+        return NULL;
+    }
+
+    /* Leave time for the screen recording to drain before the watchdog. */
+    int http_timeout = guac_typescript_env_int("GUACD_SEAWEEDFS_HTTP_TIMEOUT_MS", 1000);
+    int close_timeout = guac_typescript_env_int("GUACD_SEAWEEDFS_CLOSE_TIMEOUT_MS", 1000);
+    guac_socket_filer_config config = {
+        .filer_url = getenv("GUACD_SEAWEEDFS_FILER_URL"),
+        .path_prefix = getenv("GUACD_SEAWEEDFS_RECORDING_PREFIX"),
+        .name = typescript->data_filename,
+        .max_buffer_bytes = guac_typescript_env_size("GUACD_SEAWEEDFS_MAX_BUFFER_BYTES"),
+        .flush_threshold_bytes = guac_typescript_env_size("GUACD_SEAWEEDFS_FLUSH_THRESHOLD_BYTES"),
+        .flush_interval_ms = guac_typescript_env_int("GUACD_SEAWEEDFS_FLUSH_INTERVAL_MS", 3600000),
+        .http_timeout_ms = http_timeout > 0 ? http_timeout : 1000,
+        .close_timeout_ms = close_timeout > 0 ? close_timeout : 1000
+    };
+    typescript->data_socket = guac_socket_open_filer(&config);
+    if (typescript->data_socket == NULL) {
+        guac_mem_free(typescript);
+        return NULL;
+    }
+    config.name = typescript->timing_filename;
+    typescript->timing_socket = guac_socket_open_filer(&config);
+    if (typescript->timing_socket == NULL) {
+        guac_socket_filer_mark_incomplete(typescript->data_socket);
+        guac_socket_free(typescript->data_socket);
+        guac_mem_free(typescript);
+        return NULL;
+    }
+    typescript->last_flush = guac_timestamp_current();
+    guac_typescript_socket_write(typescript->data_socket,
+            GUAC_TERMINAL_TYPESCRIPT_HEADER,
+            sizeof(GUAC_TERMINAL_TYPESCRIPT_HEADER) - 1);
+    return typescript;
+}
+
 guac_terminal_typescript* guac_terminal_typescript_alloc(const char* path,
         const char* name, int create_path, int allow_write_existing) {
 
+    const char* backend = getenv("GUACD_RECORDING_BACKEND");
+    if (backend != NULL && *backend != '\0') {
+        if (strcasecmp(backend, "seaweedfs") == 0)
+            return guac_terminal_typescript_alloc_filer(name);
+        if (strcasecmp(backend, "filesystem") != 0) {
+            guac_error = GUAC_STATUS_INVALID_ARGUMENT;
+            guac_error_message = "Unsupported recording backend";
+            return NULL;
+        }
+    }
+
     /* Allocate space for new typescript */
     guac_terminal_typescript* typescript =
-        guac_mem_alloc(sizeof(guac_terminal_typescript));
+        guac_mem_zalloc(sizeof(guac_terminal_typescript));
+    if (typescript == NULL)
+        return NULL;
 
     guac_open_how data_how = {
         .oflags = O_CREAT | O_WRONLY,
@@ -130,13 +225,16 @@ void guac_terminal_typescript_flush(guac_terminal_typescript* typescript) {
     if (timestamp_length > sizeof(timestamp_buffer))
         timestamp_length = sizeof(timestamp_buffer);
 
-    /* Write timestamp to timing file */
-    guac_common_write(typescript->timing_fd,
-            timestamp_buffer, timestamp_length);
-
-    /* Empty buffer into data file */
-    guac_common_write(typescript->data_fd,
-            typescript->buffer, typescript->length);
+    if (typescript->data_socket != NULL) {
+        guac_typescript_socket_write(typescript->data_socket,
+                typescript->buffer, typescript->length);
+        guac_typescript_socket_write(typescript->timing_socket,
+                timestamp_buffer, timestamp_length);
+    }
+    else {
+        guac_common_write(typescript->timing_fd, timestamp_buffer, timestamp_length);
+        guac_common_write(typescript->data_fd, typescript->buffer, typescript->length);
+    }
 
     /* Buffer is now flushed */
     typescript->length = 0;
@@ -153,13 +251,21 @@ void guac_terminal_typescript_free(guac_terminal_typescript* typescript) {
     /* Flush any pending data */
     guac_terminal_typescript_flush(typescript);
 
-    /* Write footer */
-    guac_common_write(typescript->data_fd, GUAC_TERMINAL_TYPESCRIPT_FOOTER,
-            sizeof(GUAC_TERMINAL_TYPESCRIPT_FOOTER) - 1);
-
-    /* Close file descriptors */
-    close(typescript->data_fd);
-    close(typescript->timing_fd);
+    if (typescript->data_socket != NULL) {
+        guac_typescript_socket_write(typescript->data_socket,
+                GUAC_TERMINAL_TYPESCRIPT_FOOTER,
+                sizeof(GUAC_TERMINAL_TYPESCRIPT_FOOTER) - 1);
+        guac_socket_filer_begin_close(typescript->data_socket);
+        guac_socket_filer_begin_close(typescript->timing_socket);
+        guac_socket_free(typescript->data_socket);
+        guac_socket_free(typescript->timing_socket);
+    }
+    else {
+        guac_common_write(typescript->data_fd, GUAC_TERMINAL_TYPESCRIPT_FOOTER,
+                sizeof(GUAC_TERMINAL_TYPESCRIPT_FOOTER) - 1);
+        close(typescript->data_fd);
+        close(typescript->timing_fd);
+    }
 
     /* Free allocated typescript data */
     guac_mem_free(typescript);

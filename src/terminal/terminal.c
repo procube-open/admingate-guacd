@@ -3075,10 +3075,15 @@ int guac_terminal_create_typescript(guac_terminal* term, const char* path,
     }
 
     /* If typescript was successfully created, log filenames */
-    guac_client_log(term->client, GUAC_LOG_INFO, "Typescript of terminal "
-            "session will be saved within \"%s\" to \"%s\". Corresponding "
-            "timing file is \"%s\".", path, term->typescript->data_filename,
-            term->typescript->timing_filename);
+    if (term->typescript->data_socket != NULL)
+        guac_client_log(term->client, GUAC_LOG_INFO, "Typescript of terminal "
+                "session will be saved to SeaweedFS as \"%s\" and \"%s\".",
+                term->typescript->data_filename, term->typescript->timing_filename);
+    else
+        guac_client_log(term->client, GUAC_LOG_INFO, "Typescript of terminal "
+                "session will be saved within \"%s\" to \"%s\". Corresponding "
+                "timing file is \"%s\".", path, term->typescript->data_filename,
+                term->typescript->timing_filename);
 
     /* Typescript creation succeeded */
     return 0;

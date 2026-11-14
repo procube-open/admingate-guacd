@@ -129,4 +129,15 @@ typedef struct guac_socket_filer_config {
  */
 guac_socket* guac_socket_open_filer(const guac_socket_filer_config* config);
 
+/**
+ * Starts bounded draining without waiting for the uploader to finish.
+ * The socket must subsequently be freed with guac_socket_free().
+ */
+void guac_socket_filer_begin_close(guac_socket* socket);
+
+/**
+ * Marks the recording incomplete after a related initialization failure.
+ */
+void guac_socket_filer_mark_incomplete(guac_socket* socket);
+
 #endif

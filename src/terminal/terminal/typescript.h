@@ -28,6 +28,7 @@
  */
 
 #include <guacamole/timestamp.h>
+#include <guacamole/socket.h>
 
 /**
  * A NULL-terminated string of raw bytes which should be written at the
@@ -115,6 +116,9 @@ typedef struct guac_terminal_typescript {
      * data file should be written.
      */
     int timing_fd;
+
+    guac_socket* data_socket;
+    guac_socket* timing_socket;
 
     /**
      * The last time that this typescript was flushed. If this typescript was
