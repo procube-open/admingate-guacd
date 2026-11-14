@@ -469,14 +469,29 @@ static ssize_t guac_socket_filer_flush_handler(guac_socket* socket) {
     return 0;
 }
 
-static int guac_socket_filer_free_handler(guac_socket* socket) {
+void guac_socket_filer_begin_close(guac_socket* socket) {
     guac_socket_filer_data* data = (guac_socket_filer_data*) socket->data;
 
     pthread_mutex_lock(&data->lock);
-    data->closing = 1;
-    data->close_deadline_ms = monotonic_ms() + (int64_t) data->close_timeout_ms;
+    if (!data->closing) {
+        data->closing = 1;
+        data->close_deadline_ms = monotonic_ms() + (int64_t) data->close_timeout_ms;
+    }
     pthread_cond_signal(&data->cond);
     pthread_mutex_unlock(&data->lock);
+}
+
+void guac_socket_filer_mark_incomplete(guac_socket* socket) {
+    guac_socket_filer_data* data = (guac_socket_filer_data*) socket->data;
+    pthread_mutex_lock(&data->lock);
+    data->overflowed = 1;
+    pthread_cond_signal(&data->cond);
+    pthread_mutex_unlock(&data->lock);
+}
+
+static int guac_socket_filer_free_handler(guac_socket* socket) {
+    guac_socket_filer_data* data = (guac_socket_filer_data*) socket->data;
+    guac_socket_filer_begin_close(socket);
 
     pthread_join(data->worker, NULL);
 
